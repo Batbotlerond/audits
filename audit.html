@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Audit Fiabilisation</title>
+
+  <!-- Firebase v8 SDK -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; max-width: 1000px; margin: auto; }
+    h1, h2 { text-align: center; }
+
+    input, button, textarea, select {
+      margin: 8px 0;
+      padding: 8px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+      table-layout: fixed;
+    }
+
+    th, td {
+      border: 1px solid #ccc;
+      padding: 6px;
+      text-align: center;
+      word-wrap: break-word;
+    }
+
+    th:first-child, td:first-child {
+      width: 35%;
+      text-align: left;
+    }
+
+    th:nth-child(2), td:nth-child(2),
+    th:nth-child(3), td:nth-child(3),
+    th:nth-child(4), td:nth-child(4) {
+      width: 10%;
+    }
+
+    th:last-child, td:last-child {
+      width: 35%;
+    }
+
+    #auditForm { display: none; }
+    .status { margin: 10px 0; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+  <h1>Connexion à l'Audit</h1>
+
+  <div id="loginForm">
+    <input type="email" id="email" placeholder="Email">
+    <input type="password" id="password" placeholder="Mot de passe">
+    <button onclick="login()">Se connecter</button>
+    <div id="loginStatus" class="status"></div>
+  </div>
+
+  <div id="auditForm">
+    <h2>Formulaire d’Audit</h2>
+    <input type="text" id="technicien" placeholder="Nom du technicien">
+    <input type="text" id="societe" placeholder="Société">
+    <input type="date" id="date">
+    <input type="time" id="heure">
+    <input type="text" id="auditeur" placeholder="Auditeur">
+    <input type="text" id="nro" placeholder="NRO">
+    <textarea id="commentaire" placeholder="Commentaire général..."></textarea>
+
+    <table id="auditTable">
+      <thead>
+        <tr>
+          <th>Point de Contrôle</th>
+          <th>Oui</th>
+          <th>Non</th>
+          <th>Pas évalué</th>
+          <th>Commentaire</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+
+    <p class="status" id="resultats">Total Oui: 0 | Total Non: 0 | Pas évalué: 0 | % de OK: 0%</p>
+
+    <button onclick="calculerResultats()">📊 Calculer Résultats</button>
+    <button onclick="envoyerAudit()">📤 Envoyer l'audit</button>
+    <button onclick="logout()">🔒 Se déconnecter</button>
+    <div id="auditStatus" class="status"></div>
+  </div>
+
+  <script>
+    // 🔧 Configuration Firebase
+    const firebaseConfig = {
+      apiKey: "AIzaSyDf_1g1OZKOexqkqV3uKWh6_c2myMBQcHU",
+      authDomain: "audit-nro-pmgc.firebaseapp.com",
+      projectId: "audit-nro-pmgc",
+      storageBucket: "audit-nro-pmgc.appspot.com",
+      messagingSenderId: "800784852735",
+      appId: "1:800784852735:web:d551ae9d4fab3d6b20ceca"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    // Points de contrôle
+    const points = [
+      "Retard ou absence injustifiée",
+      "Présence d’un autre technicien prestataire non prévu",
+      "Comportement professionnel du prestataire",
+      "Port des EPI (gants, lunettes, chaussures, etc.)",
+      "Habilitations requises disponibles",
+      "Présence des équipements nécessaires",
+      "Respect des procédures d’accès au NRO",
+      "Capacité à se repérer dans le NRO",
+      "Capacité à identifier les types de BRK, pictels, tiroirs",
+      "Capacité à récupérer les informations ROP",
+      "Capacité à envoyer le signal laser",
+      "Communication efficace avec le technicien terrain",
+      "Mesure du signal au BRK",
+      "Interprétation correcte des valeurs mesurées",
+      "Capacité à identifier les causes d’une mauvaise mesure",
+      "Remontée des anomalies détectées",
+      "Proposition d’une solution provisoire pertinente",
+      "Prise des photos demandées de manière optimale",
+      "Photo de la baie passive et du tiroir",
+      "Photo du signal BRK",
+      "Photo du retour laser du PB",
+      "Tiroir en baie opérateur avec BRK",
+      "Photo du signal en baie opérateur",
+      "Envoi des photos au technicien terrain"
+    ];
+
+    const tbody = document.getElementById("tableBody");
+
+    points.forEach((pt, i) => {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${pt}</td>
+        <td><input type="radio" name="q${i}" value="oui"></td>
+        <td><input type="radio" name="q${i}" value="non"></td>
+        <td><input type="radio" name="q${i}" value="na"></td>
+        <td><input type="text" name="comment${i}"></td>
+      `;
+      tbody.appendChild(row);
+    });
+
+    function calculerResultats() {
+      let oui = 0, non = 0, na = 0;
+      points.forEach((_, i) => {
+        const val = document.querySelector(`input[name="q${i}"]:checked`);
+        if (!val) return;
+        if (val.value === "oui") oui++;
+        else if (val.value === "non") non++;
+        else na++;
+      });
+      const total = oui + non + na;
+      const percent = total ? Math.round((oui / total) * 100) : 0;
+      document.getElementById("resultats").textContent =
+        `Total Oui: ${oui} | Total Non: ${non} | Pas évalué: ${na} | % de OK: ${percent}%`;
+    }
+
+    function envoyerAudit() {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      let audit = {
+        technicien: document.getElementById('technicien').value,
+        societe: document.getElementById('societe').value,
+        date: document.getElementById('date').value,
+        heure: document.getElementById('heure').value,
+        auditeur: document.getElementById('auditeur').value,
+        nro: document.getElementById('nro').value,
+        commentaire: document.getElementById('commentaire').value,
+        utilisateur: user.email,
+        timestamp: new Date(),
+        controles: []
+      };
+
+      points.forEach((pt, i) => {
+        const val = document.querySelector(`input[name="q${i}"]:checked`);
+        const comment = document.querySelector(`input[name="comment${i}"]`).value;
+        audit.controles.push({
+          point: pt,
+          evaluation: val ? val.value : "non défini",
+          commentaire: comment
+        });
+      });
+
+      db.collection("audits").add(audit)
+        .then(() => {
+          document.getElementById('auditStatus').textContent = "✅ Audit enregistré avec succès !";
+        })
+        .catch((err) => {
+          document.getElementById('auditStatus').textContent = "❌ Erreur : " + err.message;
+        });
+    }
+
+    function login() {
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+
+      auth.signInWithEmailAndPassword(email, password)
+        .then(() => {
+          document.getElementById('loginStatus').textContent = "✅ Connecté";
+        })
+        .catch((error) => {
+          document.getElementById('loginStatus').textContent = "❌ " + error.message;
+        });
+    }
+
+    function logout() {
+      auth.signOut().then(() => {
+        document.getElementById('loginStatus').textContent = "🔒 Déconnecté";
+        document.getElementById('auditStatus').textContent = "";
+      });
+    }
+
+    auth.onAuthStateChanged((user) => {
+      if (user) {
+        document.getElementById('loginForm').style.display = 'none';
+        document.getElementById('auditForm').style.display = 'block';
+      } else {
+        document.getElementById('loginForm').style.display = 'block';
+        document.getElementById('auditForm').style.display = 'none';
+      }
+    });
+  </script>
+</body>
+</html>
+
