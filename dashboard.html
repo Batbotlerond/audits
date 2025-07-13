@@ -23,237 +23,256 @@
     .kpi { background: #e9ecef; padding: 10px; margin-bottom: 20px; border-radius: 5px; }
     select, input[type="date"] { padding: 8px; margin: 10px 5px; }
     canvas { max-width: 300px; max-height: 300px; margin-bottom: 30px; }
-    
   </style>
 </head>
 <body>
 
-  <h1>Dashboard Audits</h1>
+<h1>Dashboard Audits</h1>
+<div>
+  <button onclick="showView('stats')">📊 Vue Statistiques</button>
+  <button onclick="showView('audits')">📋 Vue Liste Audits</button>
+  <button onclick="exportPDF()">📥 Exporter en PDF</button>
+  <button onclick="exporterExcel()">📥 Exporter Excel</button>
+</div>
 
-  <div>
-    <button onclick="showView('stats')">📊 Vue Statistiques</button>
-    <button onclick="showView('audits')">📋 Vue Liste Audits</button>
-    <button onclick="exportPDF()">📥 Exporter en PDF</button>
-  </div>
+<!-- Filtres -->
+<div>
+  <label><strong>Filtrer par auditeur :</strong></label>
+  <select id="auditeurSelect" onchange="applyFilter()">
+    <option value="">-- Tous --</option>
+  </select>
 
-  <!-- Filtres -->
-  <div>
-    <label><strong>Filtrer par auditeur :</strong></label>
-    <select id="auditeurSelect" onchange="applyFilter()">
-      <option value="">-- Tous --</option>
-    </select>
+  <label><strong>Date début :</strong></label>
+  <input type="date" id="startDate" onchange="applyFilter()" />
 
-    <label><strong>Date début :</strong></label>
-    <input type="date" id="startDate" onchange="applyFilter()" />
+  <label><strong>Date fin :</strong></label>
+  <input type="date" id="endDate" onchange="applyFilter()" />
+</div>
 
-    <label><strong>Date fin :</strong></label>
-    <input type="date" id="endDate" onchange="applyFilter()" />
-  </div>
+<!-- Vues -->
+<div id="stats" class="hidden">
+  <h2>📊 Statistiques Générales</h2>
+  <div class="kpi" id="kpis"></div>
+  <canvas id="chartOuiNon"></canvas>
+  <div id="topErreurs"></div>
+  <div id="deptByMonth"></div>
+</div>
+<div id="audits" class="hidden"></div>
 
-  <!-- Vue stats -->
-  <div id="stats" class="hidden">
-    <h2>📊 Statistiques Générales</h2>
-    <div class="kpi" id="kpis"></div>
-    <canvas id="chartOuiNon"></canvas>
-    <div id="topErreurs"></div>
-  </div>
+<!-- Librairies -->
+<script src="https://www.gstatic.com/firebasejs/10.5.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.5.2/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <!-- Vue liste audits -->
-  <div id="audits"></div>
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyDf_1g1OZKOexqkqV3uKWh6_c2myMBQcHU",
+    authDomain: "audit-nro-pmgc.firebaseapp.com",
+    projectId: "audit-nro-pmgc",
+    storageBucket: "audit-nro-pmgc.appspot.com",
+    messagingSenderId: "800784852735",
+    appId: "1:800784852735:web:d551ae9d4fab3d6b20ceca"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
 
-  <!-- Firebase -->
-  <script src="https://www.gstatic.com/firebasejs/10.5.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.5.2/firebase-firestore-compat.js"></script>
-  <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <!-- html2canvas + jsPDF for PDF export -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  const auditsDiv = document.getElementById("audits");
+  const kpisDiv = document.getElementById("kpis");
+  const erreursDiv = document.getElementById("topErreurs");
+  const auditeurSelect = document.getElementById("auditeurSelect");
+  const startDateInput = document.getElementById("startDate");
+  const endDateInput = document.getElementById("endDate");
 
-  <script>
-    const firebaseConfig = {
-      apiKey: "AIzaSyDf_1g1OZKOexqkqV3uKWh6_c2myMBQcHU",
-      authDomain: "audit-nro-pmgc.firebaseapp.com",
-      projectId: "audit-nro-pmgc",
-      storageBucket: "audit-nro-pmgc.appspot.com",
-      messagingSenderId: "800784852735",
-      appId: "1:800784852735:web:d551ae9d4fab3d6b20ceca"
-    };
+  let allAudits = [];
+  let chartInstance;
 
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
+  function showView(view) {
+    document.getElementById("stats").classList.add("hidden");
+    document.getElementById("audits").classList.add("hidden");
+    document.getElementById(view).classList.remove("hidden");
+  }
 
-    const auditsDiv = document.getElementById("audits");
-    const kpisDiv = document.getElementById("kpis");
-    const erreursDiv = document.getElementById("topErreurs");
-    const auditeurSelect = document.getElementById("auditeurSelect");
-    const startDateInput = document.getElementById("startDate");
-    const endDateInput = document.getElementById("endDate");
+  function exportPDF() {
+    html2canvas(document.body).then(canvas => {
+      const imgData = canvas.toDataURL('image/png');
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF("p", "mm", "a4");
+      const width = pdf.internal.pageSize.getWidth();
+      const height = (canvas.height * width) / canvas.width;
+      pdf.addImage(imgData, 'PNG', 0, 0, width, height);
+      pdf.save("dashboard_audit.pdf");
+    });
+  }
 
-    let allAudits = [];
-    let chartInstance;
-
-    function showView(view) {
-      document.getElementById("stats").classList.add("hidden");
-      document.getElementById("audits").classList.add("hidden");
-      document.getElementById(view).classList.remove("hidden");
-    }
-
-    function exportPDF() {
-      html2canvas(document.body).then(canvas => {
-        const imgData = canvas.toDataURL('image/png');
-        const { jsPDF } = window.jspdf;
-        const pdf = new jsPDF("p", "mm", "a4");
-        const width = pdf.internal.pageSize.getWidth();
-        const height = (canvas.height * width) / canvas.width;
-        pdf.addImage(imgData, 'PNG', 0, 0, width, height);
-        pdf.save("dashboard_audit.pdf");
+  function exporterExcel() {
+    const ws_data = [["Auditeur", "Technicien", "Date", "Heure", "NRO", "Société", "Point de Contrôle", "Évaluation", "Commentaire"]];
+    allAudits.forEach(data => {
+      (data.controles || []).forEach(ctrl => {
+        ws_data.push([
+          data.auditeur || "",
+          data.technicien || "",
+          data.date || "",
+          data.heure || "",
+          data.nro || "",
+          data.societe || "",
+          ctrl.point || "",
+          ctrl.evaluation || "",
+          ctrl.commentaire || ""
+        ]);
       });
-    }
+    });
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(ws_data);
+    XLSX.utils.book_append_sheet(wb, ws, "Audits");
+    XLSX.writeFile(wb, "audits.xlsx");
+  }
 
-    function renderAudits(filtered) {
-      auditsDiv.innerHTML = "";
-      filtered.forEach(data => {
-        const metaHTML = `
-          <h2>Audit : ${data.technicien || "?"} (${data.date || ""})</h2>
-          <p><strong>Auditeur:</strong> ${data.auditeur || "-"} |
-             <strong>Société:</strong> ${data.societe || "-"} |
-             <strong>NRO:</strong> ${data.nro || "-"} |
-             <strong>Heure:</strong> ${data.heure || "-"}</p>
-        `;
-        let controlesHTML = `
-          <table>
-            <thead><tr>
-              <th>Point de Contrôle</th>
-              <th>Évaluation</th>
-              <th>Commentaire</th>
-            </tr></thead>
-            <tbody>
-        `;
-        (data.controles || []).forEach(ctrl => {
-          controlesHTML += `
-            <tr>
-              <td>${ctrl.point}</td>
-              <td>${ctrl.evaluation}</td>
-              <td>${ctrl.commentaire || ""}</td>
-            </tr>
-          `;
-        });
-        controlesHTML += `</tbody></table>`;
-        auditsDiv.innerHTML += metaHTML + controlesHTML;
+  function renderAudits(filtered) {
+    auditsDiv.innerHTML = "";
+    filtered.forEach(data => {
+      const metaHTML = `
+        <h2>Audit : ${data.technicien || "?"} (${data.date || ""})</h2>
+        <p><strong>Auditeur:</strong> ${data.auditeur || "-"} |
+           <strong>Société:</strong> ${data.societe || "-"} |
+           <strong>NRO:</strong> ${data.nro || "-"} |
+           <strong>Heure:</strong> ${data.heure || "-"}</p>`;
+
+      let controlesHTML = `<table><thead><tr><th>Point</th><th>Évaluation</th><th>Commentaire</th></tr></thead><tbody>`;
+      (data.controles || []).forEach(ctrl => {
+        controlesHTML += `<tr><td>${ctrl.point}</td><td>${ctrl.evaluation}</td><td>${ctrl.commentaire || ""}</td></tr>`;
       });
-    }
+      controlesHTML += `</tbody></table>`;
+      auditsDiv.innerHTML += metaHTML + controlesHTML;
+    });
+  }
 
-    function renderStats(filtered) {
-      let totalOui = 0, totalNon = 0;
-      let totalAudits = filtered.length;
-      const auditeursMap = {}, techniciensMap = {}, erreursMap = {};
+  function renderStats(filtered) {
+    let totalOui = 0, totalNon = 0;
+    const auditeursMap = {}, techniciensMap = {}, erreursMap = {};
 
-      filtered.forEach(data => {
-        if (!auditeursMap[data.auditeur]) auditeursMap[data.auditeur] = { count: 0, totalOui: 0, total: 0 };
-        auditeursMap[data.auditeur].count++;
-        if (!techniciensMap[data.technicien]) techniciensMap[data.technicien] = { count: 0, totalOui: 0, total: 0 };
-        techniciensMap[data.technicien].count++;
+    filtered.forEach(data => {
+      auditeursMap[data.auditeur] = auditeursMap[data.auditeur] || { count: 0, totalOui: 0, total: 0 };
+      auditeursMap[data.auditeur].count++;
+      techniciensMap[data.technicien] = techniciensMap[data.technicien] || { count: 0, totalOui: 0, total: 0 };
+      techniciensMap[data.technicien].count++;
 
-        (data.controles || []).forEach(ctrl => {
-          const eval = ctrl.evaluation?.toLowerCase();
-          if (eval === "oui") {
-            totalOui++;
-            auditeursMap[data.auditeur].totalOui++;
-            techniciensMap[data.technicien].totalOui++;
-          }
-          if (eval === "non") {
-            totalNon++;
-            erreursMap[ctrl.point] = (erreursMap[ctrl.point] || 0) + 1;
-          }
-          if (eval === "oui" || eval === "non") {
-            auditeursMap[data.auditeur].total++;
-            techniciensMap[data.technicien].total++;
-          }
-        });
-      });
-
-      // KPI
-      let kpiHTML = `<p><strong>Total d'audits :</strong> ${totalAudits}</p>`;
-
-      kpiHTML += `<h3>📌 Moyenne % "Oui" par Technicien</h3><ul>`;
-      for (let tech in techniciensMap) {
-        const t = techniciensMap[tech];
-        const pct = t.total ? Math.round((t.totalOui / t.total) * 100) : 0;
-        kpiHTML += `<li>${tech}: ${t.count} audits - ${pct}% "Oui"</li>`;
-      }
-      kpiHTML += `</ul>`;
-
-      kpiHTML += `<h3>🕵️ Audits par Auditeur</h3><ul>`;
-      for (let aud in auditeursMap) {
-        const a = auditeursMap[aud];
-        const pct = a.total ? Math.round((a.totalOui / a.total) * 100) : 0;
-        kpiHTML += `<li>${aud}: ${a.count} audits - ${pct}% "Oui"</li>`;
-      }
-      kpiHTML += `</ul>`;
-      kpisDiv.innerHTML = kpiHTML;
-
-      // Chart
-      if (chartInstance) chartInstance.destroy();
-      chartInstance = new Chart(document.getElementById("chartOuiNon"), {
-        type: "doughnut",
-        data: {
-          labels: ["Oui", "Non"],
-          datasets: [{
-            data: [totalOui, totalNon],
-            backgroundColor: ["#28a745", "#dc3545"]
-          }]
-        },
-        options: {
-          plugins: { legend: { position: "bottom" } }
+      (data.controles || []).forEach(ctrl => {
+        const eval = ctrl.evaluation?.toLowerCase();
+        if (eval === "oui") {
+          totalOui++;
+          auditeursMap[data.auditeur].totalOui++;
+          techniciensMap[data.technicien].totalOui++;
+        }
+        if (eval === "non") {
+          totalNon++;
+          erreursMap[ctrl.point] = (erreursMap[ctrl.point] || 0) + 1;
+        }
+        if (eval === "oui" || eval === "non") {
+          auditeursMap[data.auditeur].total++;
+          techniciensMap[data.technicien].total++;
         }
       });
+    });
 
-      // Top erreurs
-      const sortedErreurs = Object.entries(erreursMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
-      let erreursHTML = `<h3>❌ Top 5 erreurs fréquentes</h3><ul>`;
-      sortedErreurs.forEach(([point, count]) => {
-        erreursHTML += `<li>${point} - ${count} erreurs</li>`;
-      });
-      erreursHTML += `</ul>`;
-      erreursDiv.innerHTML = erreursHTML;
+    // KPIs
+    let kpiHTML = `<p><strong>Total d'audits :</strong> ${filtered.length}</p>`;
+    kpiHTML += `<h3>📌 Moyenne % "Oui" par Technicien</h3><ul>`;
+    for (let tech in techniciensMap) {
+      const t = techniciensMap[tech];
+      const pct = t.total ? Math.round((t.totalOui / t.total) * 100) : 0;
+      kpiHTML += `<li>${tech}: ${t.count} audits - ${pct}% "Oui"</li>`;
     }
-
-    function applyFilter() {
-      const auditeur = auditeurSelect.value;
-      const start = startDateInput.value;
-      const end = endDateInput.value;
-
-      let filtered = allAudits.filter(a => {
-        const matchAuditeur = auditeur === "" || a.auditeur === auditeur;
-        const matchDate = (!start && !end) || (
-          a.date && new Date(a.date) >= new Date(start) &&
-          new Date(a.date) <= new Date(end)
-        );
-        return matchAuditeur && matchDate;
-      });
-
-      renderAudits(filtered);
-      renderStats(filtered);
+    kpiHTML += `</ul><h3>🕵️ Audits par Auditeur</h3><ul>`;
+    for (let aud in auditeursMap) {
+      const a = auditeursMap[aud];
+      const pct = a.total ? Math.round((a.totalOui / a.total) * 100) : 0;
+      kpiHTML += `<li>${aud}: ${a.count} audits - ${pct}% "Oui"</li>`;
     }
+    kpiHTML += `</ul>`;
+    kpisDiv.innerHTML = kpiHTML;
 
-    db.collection("audits").get().then(snapshot => {
-      const auditeursSet = new Set();
-      snapshot.forEach(doc => {
-        const data = doc.data();
-        if (data.auditeur) auditeursSet.add(data.auditeur);
-        allAudits.push(data);
+    if (chartInstance) chartInstance.destroy();
+    chartInstance = new Chart(document.getElementById("chartOuiNon"), {
+      type: "doughnut",
+      data: {
+        labels: ["Oui", "Non"],
+        datasets: [{ data: [totalOui, totalNon], backgroundColor: ["#28a745", "#dc3545"] }]
+      },
+      options: { plugins: { legend: { position: "bottom" } } }
+    });
+
+    const sortedErreurs = Object.entries(erreursMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    erreursDiv.innerHTML = `<h3>❌ Top 5 erreurs fréquentes</h3><ul>${sortedErreurs.map(([p, c]) => `<li>${p} - ${c}</li>`).join('')}</ul>`;
+  }
+
+  function applyFilter() {
+    const auditeur = auditeurSelect.value;
+    const start = startDateInput.value;
+    const end = endDateInput.value;
+
+    let filtered = allAudits.filter(a => {
+      const matchAuditeur = !auditeur || a.auditeur === auditeur;
+      let matchDate = true;
+      if (start && a.date) matchDate = new Date(a.date) >= new Date(start);
+      if (end && a.date) matchDate = matchDate && new Date(a.date) <= new Date(end);
+      return matchAuditeur && matchDate;
+    });
+
+    renderAudits(filtered);
+    renderStats(filtered);
+  }
+
+  db.collection("audits").get().then(snapshot => {
+    const auditeursSet = new Set();
+    const deptMonthMap = {};
+    const allMonthsSet = new Set();
+
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      if (data.auditeur) auditeursSet.add(data.auditeur);
+      allAudits.push(data);
+
+      const nro = data.nro || "";
+      const deptCode = nro.slice(-2);
+      const dateStr = data.date || "";
+      const month = dateStr.slice(0, 7);
+
+      if (!deptMonthMap[deptCode]) deptMonthMap[deptCode] = {};
+      if (!deptMonthMap[deptCode][month]) deptMonthMap[deptCode][month] = 0;
+      deptMonthMap[deptCode][month]++;
+      allMonthsSet.add(month);
+    });
+
+    Array.from(auditeursSet).sort().forEach(aud => {
+      const opt = document.createElement("option");
+      opt.value = aud;
+      opt.textContent = aud;
+      auditeurSelect.appendChild(opt);
+    });
+
+    applyFilter();
+
+    const allMonths = Array.from(allMonthsSet).sort();
+    let deptMonthHTML = `<h2>📊 Audits par Département et Mois</h2><table><thead><tr><th>Département</th>${allMonths.map(m => `<th>${m}</th>`).join("")}<th>Total</th></tr></thead><tbody>`;
+    for (const dept in deptMonthMap) {
+      let rowTotal = 0;
+      deptMonthHTML += `<tr><td>${dept}</td>`;
+      allMonths.forEach(month => {
+        const count = deptMonthMap[dept][month] || 0;
+        rowTotal += count;
+        deptMonthHTML += `<td>${count}</td>`;
       });
-
-      // Dropdown auditeurs
-      Array.from(auditeursSet).sort().forEach(aud => {
-        const opt = document.createElement("option");
-        opt.value = aud;
-        opt.textContent = aud;
-        auditeurSelect.appendChild(opt);
-      });
-
-      applyFilter();
+      deptMonthHTML += `<td><strong>${rowTotal}</strong></td></tr>`;
+    }
+    deptMonthHTML += `</tbody></table>`;
+    document.getElementById("deptByMonth").innerHTML = deptMonthHTML;
+  });
+</script>
+</body>
+</html>
     });
   </script>
 
