@@ -167,40 +167,79 @@
     }
 
     function envoyerAudit() {
-      const user = auth.currentUser;
-      if (!user) return;
+  const user = auth.currentUser;
+  if (!user) return;
 
-      let audit = {
-        technicien: document.getElementById('technicien').value,
-        societe: document.getElementById('societe').value,
-        date: document.getElementById('date').value,
-        heure: document.getElementById('heure').value,
-        auditeur: document.getElementById('auditeur').value,
-        nro: document.getElementById('nro').value,
-        commentaire: document.getElementById('commentaire').value,
-        utilisateur: user.email,
-        timestamp: new Date(),
-        controles: []
-      };
+  // Récupération des champs
+  const technicien = document.getElementById('technicien').value.trim();
+  const societe = document.getElementById('societe').value.trim();
+  const date = document.getElementById('date').value;
+  const heure = document.getElementById('heure').value;
+  const auditeur = document.getElementById('auditeur').value.trim();
+  const nro = document.getElementById('nro').value.trim();
+  const commentaire = document.getElementById('commentaire').value.trim();
 
-      points.forEach((pt, i) => {
-        const val = document.querySelector(`input[name="q${i}"]:checked`);
-        const comment = document.querySelector(`input[name="comment${i}"]`).value;
-        audit.controles.push({
-          point: pt,
-          evaluation: val ? val.value : "non défini",
-          commentaire: comment
-        });
-      });
+  let erreurs = [];
 
-      db.collection("audits").add(audit)
-        .then(() => {
-          document.getElementById('auditStatus').textContent = "✅ Audit enregistré avec succès !";
-        })
-        .catch((err) => {
-          document.getElementById('auditStatus').textContent = "❌ Erreur : " + err.message;
-        });
+  // Vérification des champs obligatoires
+  if (!technicien) erreurs.push("🛑 Le nom du technicien est requis.");
+  if (!societe) erreurs.push("🛑 La société est requise.");
+  if (!date) erreurs.push("🛑 La date est requise.");
+  if (!heure) erreurs.push("🛑 L'heure est requise.");
+  if (!auditeur) erreurs.push("🛑 Le nom de l'auditeur est requis.");
+  if (!nro) erreurs.push("🛑 Le NRO est requis.");
+
+  // Vérification des points de contrôle
+  const controles = [];
+  points.forEach((pt, i) => {
+    const val = document.querySelector(`input[name="q${i}"]:checked`);
+    const comment = document.querySelector(`input[name="comment${i}"]`).value.trim();
+
+    if (!val) {
+      erreurs.push(`🛑 Point "${pt}" non évalué.`);
     }
+
+    // Si réponse "non", commentaire obligatoire
+    if (val && val.value === "non" && !comment) {
+      erreurs.push(`🛑 Commentaire requis pour le point "${pt}" (évaluation = Non).`);
+    }
+
+    controles.push({
+      point: pt,
+      evaluation: val ? val.value : "non défini",
+      commentaire: comment
+    });
+  });
+
+  // Affichage des erreurs
+  if (erreurs.length > 0) {
+    alert("Erreur de validation :\n\n" + erreurs.join("\n"));
+    return;
+  }
+
+  // Si tout est bon, on envoie à Firestore
+  const audit = {
+    technicien,
+    societe,
+    date,
+    heure,
+    auditeur,
+    nro,
+    commentaire,
+    utilisateur: user.email,
+    timestamp: new Date(),
+    controles
+  };
+
+  db.collection("audits").add(audit)
+    .then(() => {
+      document.getElementById('auditStatus').textContent = "✅ Audit enregistré avec succès !";
+    })
+    .catch((err) => {
+      document.getElementById('auditStatus').textContent = "❌ Erreur : " + err.message;
+    });
+}
+
 
     function login() {
       const email = document.getElementById('email').value;
@@ -234,4 +273,3 @@
   </script>
 </body>
 </html>
-
